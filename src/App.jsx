@@ -37,6 +37,8 @@ export default function App() {
   const [showGestisciEmail, setShowGestisciEmail] = useState(false)
   const [tmplEdit, setTmplEdit] = useState(null)
   const [tmplNuovo, setTmplNuovo] = useState(null)
+  const [editingClienteId, setEditingClienteId] = useState(null)
+  const [editingClienteNome, setEditingClienteNome] = useState('')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -247,6 +249,20 @@ export default function App() {
     if (!window.confirm('Eliminare questa email preimpostata?')) return
     await supabase.from('email_templates').delete().eq('id', id)
     setTemplates(prev => prev.filter(t => t.id !== id))
+  }
+
+  const rinominaCliente = async (id) => {
+    if (!editingClienteNome.trim()) return
+    const nome = editingClienteNome.trim()
+    await supabase.from('clienti').update({ ragione_sociale: nome }).eq('id', id)
+    setClienti(prev => prev.map(c => c.id === id ? { ...c, ragione_sociale: nome } : c))
+    setEditingClienteId(null)
+  }
+
+  const eliminaCliente = async (id) => {
+    if (!window.confirm('Eliminare questo cliente e tutte le sue schede?')) return
+    await supabase.from('clienti').delete().eq('id', id)
+    setClienti(prev => prev.filter(c => c.id !== id))
   }
 
   const aggiungiCliente = async () => {
@@ -639,35 +655,54 @@ export default function App() {
                 const flagRossi = [...flagRossiSet]
 
                 return (
-                  <div key={c.id} className="cliente-row" onClick={() => apriCliente(c)}>
+                  <div key={c.id} className="cliente-row" onClick={() => editingClienteId !== c.id && apriCliente(c)}>
                     <div style={{flex:1}}>
-                      <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:4, flexWrap:'wrap'}}>
-                        <span className="cliente-nome" style={{flex:'none'}}>{c.ragione_sociale}</span>
-                        {ultimaScheda?.aggiornamento_dal && (
-                          <span style={{fontSize:12, color:'#6b7280'}}>
-                            Agg.: {fmt(ultimaScheda.aggiornamento_dal)} → {fmt(ultimaScheda.aggiornamento_al)}
-                          </span>
-                        )}
-                        {primaRettifica && (
-                          <span style={{fontSize:12, color:'#6b7280'}}>· Rett.: {fmt(primaRettifica.data)}</span>
-                        )}
-                        {pesoMin && (
-                          <span style={{fontSize:12, color:'#6b7280'}}>
-                            · Peso: {fmt(pesoMin.data_peso_destino)}{pesoMax?.data_peso_destino_al ? ` → ${fmt(pesoMax.data_peso_destino_al)}` : ''}
-                          </span>
-                        )}
-                      </div>
-                      {flagRossi.length > 0 && (
-                        <div style={{display:'flex', gap:4, flexWrap:'wrap'}}>
-                          {flagRossi.map(f => (
-                            <span key={f} style={{fontSize:11, background:'#fff1f2', color:'#dc2626', borderRadius:4, padding:'1px 6px'}}>
-                              🔴 {FLAG_NAMES[f]}
-                            </span>
-                          ))}
+                      {editingClienteId === c.id ? (
+                        <div style={{display:'flex', gap:8, alignItems:'center'}} onClick={e => e.stopPropagation()}>
+                          <input autoFocus value={editingClienteNome}
+                            onChange={e => setEditingClienteNome(e.target.value)}
+                            onKeyDown={e => { if (e.key==='Enter') rinominaCliente(c.id); if (e.key==='Escape') setEditingClienteId(null) }}
+                            style={{fontSize:15, fontWeight:600, border:'1.5px solid #3b82f6', borderRadius:7, padding:'5px 10px', flex:1}} />
+                          <button className="btn-ok" style={{padding:'4px 12px',fontSize:13}} onClick={() => rinominaCliente(c.id)}>✓</button>
+                          <button className="btn-cancel" style={{padding:'4px 10px',fontSize:13}} onClick={() => setEditingClienteId(null)}>✕</button>
                         </div>
+                      ) : (
+                        <>
+                          <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:4, flexWrap:'wrap'}}>
+                            <span className="cliente-nome" style={{flex:'none'}}>{c.ragione_sociale}</span>
+                            {ultimaScheda?.aggiornamento_dal && (
+                              <span style={{fontSize:12, color:'#6b7280'}}>
+                                Agg.: {fmt(ultimaScheda.aggiornamento_dal)} → {fmt(ultimaScheda.aggiornamento_al)}
+                              </span>
+                            )}
+                            {primaRettifica && (
+                              <span style={{fontSize:12, color:'#6b7280'}}>· Rett.: {fmt(primaRettifica.data)}</span>
+                            )}
+                            {pesoMin && (
+                              <span style={{fontSize:12, color:'#6b7280'}}>
+                                · Peso: {fmt(pesoMin.data_peso_destino)}{pesoMax?.data_peso_destino_al ? ` → ${fmt(pesoMax.data_peso_destino_al)}` : ''}
+                              </span>
+                            )}
+                          </div>
+                          {flagRossi.length > 0 && (
+                            <div style={{display:'flex', gap:4, flexWrap:'wrap'}}>
+                              {flagRossi.map(f => (
+                                <span key={f} style={{fontSize:11, background:'#fff1f2', color:'#dc2626', borderRadius:4, padding:'1px 6px'}}>
+                                  🔴 {FLAG_NAMES[f]}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
-                    <span className="cliente-arrow">›</span>
+                    <div style={{display:'flex', gap:4, alignItems:'center'}} onClick={e => e.stopPropagation()}>
+                      {editingClienteId !== c.id && <>
+                        <button className="edit-email-btn" onClick={() => { setEditingClienteId(c.id); setEditingClienteNome(c.ragione_sociale) }}>✏</button>
+                        <button className="edit-email-btn" style={{color:'#dc2626', borderColor:'#fca5a5'}} onClick={() => eliminaCliente(c.id)}>🗑</button>
+                        <span className="cliente-arrow">›</span>
+                      </>}
+                    </div>
                   </div>
                 )
               })

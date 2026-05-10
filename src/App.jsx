@@ -34,6 +34,7 @@ export default function App() {
   const [templateSel, setTemplateSel] = useState('')
   const [schedeArchiviate, setSchedeArchiviate] = useState([])
   const [tutteRettifiche, setTutteRettifiche]   = useState([])
+  const [tutteSchede, setTutteSchede]           = useState([])
   const [showGestisciEmail, setShowGestisciEmail] = useState(false)
   const [tmplEdit, setTmplEdit] = useState(null)
   const [tmplNuovo, setTmplNuovo] = useState(null)
@@ -65,12 +66,14 @@ export default function App() {
   }, [])
 
   const fetchRiepilogo = useCallback(async () => {
-    const [{ data: sa }, { data: tr }] = await Promise.all([
+    const [{ data: sa }, { data: tr }, { data: ts }] = await Promise.all([
       supabase.from('registri').select('*').eq('archiviato', true),
-      supabase.from('date_rettifiche').select('*').eq('nascosto', false).order('data')
+      supabase.from('date_rettifiche').select('*').eq('nascosto', false).order('data'),
+      supabase.from('registri').select('id, cliente_id, ultimo_xfir, creato_il').not('ultimo_xfir', 'is', null).neq('ultimo_xfir', '')
     ])
     setSchedeArchiviate(sa || [])
     setTutteRettifiche(tr || [])
+    setTutteSchede(ts || [])
   }, [])
 
   useEffect(() => {
@@ -195,6 +198,7 @@ export default function App() {
       data_peso_destino:    schedaSel.data_peso_destino || null,
       data_peso_destino_al: schedaSel.data_peso_destino_al || null,
       flag_peso_destino:    schedaSel.flag_peso_destino || null,
+      flag_rettifiche:      schedaSel.flag_rettifiche || null,
       note:                 schedaSel.note || null,
       problemi:             schedaSel.problemi || null,
       aggiornato_il:        new Date().toISOString()
@@ -216,6 +220,7 @@ export default function App() {
       data_peso_destino:    schedaSel.data_peso_destino || null,
       data_peso_destino_al: schedaSel.data_peso_destino_al || null,
       flag_peso_destino:    schedaSel.flag_peso_destino || null,
+      flag_rettifiche:      schedaSel.flag_rettifiche || null,
       note:                 schedaSel.note || null,
       problemi:             schedaSel.problemi || null,
       aggiornato_il:        new Date().toISOString(),
@@ -360,7 +365,12 @@ export default function App() {
               </div>
 
               <div className="field">
-                <label>Date rettifiche</label>
+                <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4}}>
+                  <label style={{margin:0}}>Date rettifiche</label>
+                  <span style={{fontSize:18, cursor:'pointer', userSelect:'none'}} onClick={() => cicloFlag('flag_rettifiche')}>
+                    {flagIcon(schedaSel.flag_rettifiche)}
+                  </span>
+                </div>
                 {dateRettifiche.filter(d => d.scheda_id === schedaSel.id).map(d => (
                   <div key={d.id} style={{display:'flex', alignItems:'center', gap:6, marginBottom:4}}>
                     {editingDataId === d.id ? (
@@ -585,17 +595,25 @@ export default function App() {
                           : <span className="badge-attiva">Attiva</span>
                         }
                         {s.aggiornamento_dal && (
-                          <span style={{fontSize:13, fontWeight:500}}>
+                          <span style={{fontSize:13, color:'#374151', fontWeight:600}}>
                             Agg.: {fmt(s.aggiornamento_dal)} → {fmt(s.aggiornamento_al)}
                           </span>
                         )}
-                        {s.ultimo_xfir && (
-                          <span style={{fontSize:13, color:'#6b7280'}}>· XFIR: {s.ultimo_xfir}</span>
-                        )}
-                        {s.data_peso_destino && (
-                          <span style={{fontSize:13, color:'#6b7280'}}>
-                            · Peso: {fmt(s.data_peso_destino)}{s.data_peso_destino_al ? ` → ${fmt(s.data_peso_destino_al)}` : ''}
+                        {s.flag_rettifiche === 'rosso' && (() => {
+                          const primaRett = dateRettifiche
+                            .filter(d => d.scheda_id === s.id && !d.nascosto)
+                            .sort((a, b) => a.data.localeCompare(b.data))[0]
+                          return primaRett
+                            ? <span style={{fontSize:13, color:'#374151', fontWeight:600}}>· 🔴 Rett.: {fmt(primaRett.data)}</span>
+                            : null
+                        })()}
+                        {s.flag_peso_destino === 'rosso' && s.data_peso_destino && (
+                          <span style={{fontSize:13, color:'#374151', fontWeight:600}}>
+                            · 🔴 Peso: {fmt(s.data_peso_destino)}{s.data_peso_destino_al ? ` → ${fmt(s.data_peso_destino_al)}` : ''}
                           </span>
+                        )}
+                        {s.ultimo_xfir && (
+                          <span style={{fontSize:13, color:'#374151', fontWeight:600}}>· XFIR: {s.ultimo_xfir}</span>
                         )}
                       </div>
                       <div style={{display:'flex', alignItems:'center', gap:6, flexWrap:'wrap'}}>
@@ -640,15 +658,26 @@ export default function App() {
                 const FLAG_NAMES = { registro_rentri:'Reg. RENTRI', registro_conservazione:'Reg. cons.', xfir_rentri:'XFIR RENTRI', xfir_conservazione:'XFIR cons.', registro_cliente:'Reg. cliente', xfir_cliente:'XFIR cliente', archiviazione_email:'Arch. email' }
 
                 const schedeC = schedeArchiviate.filter(s => s.cliente_id === c.id)
-                const ultimaScheda = [...schedeC].sort((a, b) => new Date(b.aggiornato_il || b.creato_il) - new Date(a.aggiornato_il || a.creato_il))[0]
+                const ultimaScheda = [...schedeC]
+                  .filter(s => s.aggiornamento_al)
+                  .sort((a, b) => b.aggiornamento_al.localeCompare(a.aggiornamento_al))[0]
 
-                const rettificheC = tutteRettifiche.filter(r => r.cliente_id === c.id)
-                const primaRettifica = rettificheC[0]
+                const schedeRettRosseIds = new Set(
+                  schedeC.filter(s => s.flag_rettifiche === 'rosso').map(s => s.id)
+                )
+                const primaRettifica = tutteRettifiche
+                  .filter(r => r.cliente_id === c.id && schedeRettRosseIds.has(r.scheda_id))
+                  .sort((a, b) => a.data.localeCompare(b.data))[0] || null
 
                 const pesoRossoC = schedeC.filter(s => s.flag_peso_destino === 'rosso' && s.data_peso_destino)
                   .sort((a, b) => (a.data_peso_destino || '').localeCompare(b.data_peso_destino || ''))
                 const pesoMin = pesoRossoC[0]
                 const pesoMax = pesoRossoC[pesoRossoC.length - 1]
+
+                const schedeConXfirC = tutteSchede
+                  .filter(s => s.cliente_id === c.id)
+                  .sort((a, b) => new Date(b.creato_il) - new Date(a.creato_il))
+                const ultimoXfir = schedeConXfirC[0]?.ultimo_xfir || null
 
                 const flagRossiSet = new Set()
                 schedeC.forEach(s => FLAG_CAMPI.forEach(f => { if (s[f] === 'rosso') flagRossiSet.add(f) }))
@@ -671,17 +700,20 @@ export default function App() {
                           <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:4, flexWrap:'wrap'}}>
                             <span className="cliente-nome" style={{flex:'none'}}>{c.ragione_sociale}</span>
                             {ultimaScheda?.aggiornamento_dal && (
-                              <span style={{fontSize:12, color:'#6b7280'}}>
+                              <span style={{fontSize:13, color:'#374151', fontWeight:600}}>
                                 Agg.: {fmt(ultimaScheda.aggiornamento_dal)} → {fmt(ultimaScheda.aggiornamento_al)}
                               </span>
                             )}
                             {primaRettifica && (
-                              <span style={{fontSize:12, color:'#6b7280'}}>· Rett.: {fmt(primaRettifica.data)}</span>
+                              <span style={{fontSize:13, color:'#374151', fontWeight:600}}>· 🔴 Rett.: {fmt(primaRettifica.data)}</span>
                             )}
                             {pesoMin && (
-                              <span style={{fontSize:12, color:'#6b7280'}}>
-                                · Peso: {fmt(pesoMin.data_peso_destino)}{pesoMax?.data_peso_destino_al ? ` → ${fmt(pesoMax.data_peso_destino_al)}` : ''}
+                              <span style={{fontSize:13, color:'#374151', fontWeight:600}}>
+                                · 🔴 Peso: {fmt(pesoMin.data_peso_destino)}{pesoMax?.data_peso_destino_al ? ` → ${fmt(pesoMax.data_peso_destino_al)}` : ''}
                               </span>
+                            )}
+                            {ultimoXfir && (
+                              <span style={{fontSize:13, color:'#374151', fontWeight:600}}>· XFIR: {ultimoXfir}</span>
                             )}
                           </div>
                           {flagRossi.length > 0 && (
